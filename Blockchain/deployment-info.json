@@ -1,0 +1,16 @@
+{
+  "network": "sepolia",
+  "deployer": "0x937dCeeAdBFD02D5453C7937E2217957D74E912d",
+  "timestamp": "2026-02-04T16:39:38.385Z",
+  "contracts": {
+    "TFXToken": {
+      "address": "0xe8aC27B0B0A257aC40Ec9e99B899CD9d5A2D528B",
+      "name": "TrustForge Token",
+      "symbol": "TFX"
+    },
+    "TrustForge": {
+      "address": "0x236C9dae6369596f9301aFA1Fbb7C3E8613F903e",
+      "lendingToken": "0xe8aC27B0B0A257aC40Ec9e99B899CD9d5A2D528B"
+    }
+  }
+}
