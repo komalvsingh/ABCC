@@ -1,13 +1,13 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import { ethers } from "ethers";
+import * as ethers from "ethers";
 
 // Import ABIs
 import TFXTokenABI from "../abis/TFXToken.json";
 import TrustForgeABI from "../abis/TrustForge.json";
 
 // Addresses (from your deployments)
-const TFX_ADDRESS = "0xYourTFXAddressHere";
-const TRUSTFORGE_ADDRESS = "0xYourTrustForgeAddressHere";
+const TFX_ADDRESS = "0xe8aC27B0B0A257aC40Ec9e99B899CD9d5A2D528B";
+const TRUSTFORGE_ADDRESS = "0x236C9dae6369596f9301aFA1Fbb7C3E8613F903e";
 
 const BlockchainContext = createContext();
 
@@ -35,13 +35,13 @@ export const BlockchainProvider = ({ children }) => {
     const tfxContract = new ethers.Contract(
       TFX_ADDRESS,
       TFXTokenABI.abi,
-      signer
+      signer,
     );
 
     const trustForgeContract = new ethers.Contract(
       TRUSTFORGE_ADDRESS,
       TrustForgeABI.abi,
-      signer
+      signer,
     );
 
     setAccount(accounts[0]);
@@ -61,15 +61,13 @@ export const BlockchainProvider = ({ children }) => {
   /* ----------------- TFX FUNCTIONS ----------------- */
 
   const getTFXBalance = async () => {
+    if (!tfx || !account) return "0";
     const bal = await tfx.balanceOf(account);
     return ethers.formatEther(bal);
   };
 
   const approveTFX = async (amount) => {
-    const tx = await tfx.approve(
-      TRUSTFORGE_ADDRESS,
-      ethers.parseEther(amount)
-    );
+    const tx = await tfx.approve(TRUSTFORGE_ADDRESS, ethers.parseEther(amount));
     await tx.wait();
   };
 
@@ -77,16 +75,12 @@ export const BlockchainProvider = ({ children }) => {
 
   const depositToPool = async (amount) => {
     await approveTFX(amount);
-    const tx = await trustForge.depositToPool(
-      ethers.parseEther(amount)
-    );
+    const tx = await trustForge.depositToPool(ethers.parseEther(amount));
     await tx.wait();
   };
 
   const withdrawFromPool = async (amount) => {
-    const tx = await trustForge.withdrawFromPool(
-      ethers.parseEther(amount)
-    );
+    const tx = await trustForge.withdrawFromPool(ethers.parseEther(amount));
     await tx.wait();
   };
 
@@ -98,9 +92,7 @@ export const BlockchainProvider = ({ children }) => {
   /* ----------------- BORROWER FUNCTIONS ----------------- */
 
   const requestLoan = async (amount) => {
-    const tx = await trustForge.requestLoan(
-      ethers.parseEther(amount)
-    );
+    const tx = await trustForge.requestLoan(ethers.parseEther(amount));
     await tx.wait();
   };
 
