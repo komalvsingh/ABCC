@@ -1,5 +1,5 @@
 import { createContext, useContext, useEffect, useState } from "react";
-import * as ethers from "ethers";
+import { BrowserProvider, Contract, formatEther, parseEther } from "ethers";
 
 // Import ABIs
 import TFXTokenABI from "../abis/TFXToken.json";
@@ -17,126 +17,506 @@ export const BlockchainProvider = ({ children }) => {
   const [signer, setSigner] = useState(null);
   const [tfx, setTfx] = useState(null);
   const [trustForge, setTrustForge] = useState(null);
+  const [loading, setLoading] = useState(false);
 
   // Connect wallet
   const connectWallet = async () => {
     if (!window.ethereum) {
-      alert("Install MetaMask");
+      alert("Please install MetaMask to use this application");
       return;
     }
 
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
+    try {
+      setLoading(true);
+      const accounts = await window.ethereum.request({
+        method: "eth_requestAccounts",
+      });
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
+      const provider = new BrowserProvider(window.ethereum);
+      const signer = await provider.getSigner();
 
-    const tfxContract = new ethers.Contract(
-      TFX_ADDRESS,
-      TFXTokenABI.abi,
-      signer,
-    );
+      // Handle both ABI formats: {abi: [...]} or just [...]
+      const tfxABI = TFXTokenABI.abi || TFXTokenABI;
+      const trustForgeABI = TrustForgeABI.abi || TrustForgeABI;
 
-    const trustForgeContract = new ethers.Contract(
-      TRUSTFORGE_ADDRESS,
-      TrustForgeABI.abi,
-      signer,
-    );
+      const tfxContract = new Contract(
+        TFX_ADDRESS,
+        tfxABI,
+        signer
+      );
 
-    setAccount(accounts[0]);
-    setProvider(provider);
-    setSigner(signer);
-    setTfx(tfxContract);
-    setTrustForge(trustForgeContract);
+      const trustForgeContract = new Contract(
+        TRUSTFORGE_ADDRESS,
+        trustForgeABI,
+        signer
+      );
+
+      setAccount(accounts[0]);
+      setProvider(provider);
+      setSigner(signer);
+      setTfx(tfxContract);
+      setTrustForge(trustForgeContract);
+      
+      console.log("Wallet connected:", accounts[0]);
+    } catch (error) {
+      console.error("Error connecting wallet:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  // Auto connect
+  // Disconnect wallet
+  const disconnectWallet = () => {
+    setAccount(null);
+    setProvider(null);
+    setSigner(null);
+    setTfx(null);
+    setTrustForge(null);
+  };
+
+  // Auto connect on mount
+  useEffect(() => {
+    const autoConnect = async () => {
+      if (window.ethereum) {
+        try {
+          const accounts = await window.ethereum.request({
+            method: "eth_accounts",
+          });
+          if (accounts.length > 0) {
+            await connectWallet();
+          }
+        } catch (error) {
+          console.error("Auto-connect failed:", error);
+        }
+      }
+    };
+    autoConnect();
+  }, []);
+
+  // Listen for account changes
   useEffect(() => {
     if (window.ethereum) {
-      connectWallet();
+      const handleAccountsChanged = (accounts) => {
+        if (accounts.length === 0) {
+          disconnectWallet();
+        } else {
+          connectWallet();
+        }
+      };
+
+      const handleChainChanged = () => {
+        window.location.reload();
+      };
+
+      window.ethereum.on("accountsChanged", handleAccountsChanged);
+      window.ethereum.on("chainChanged", handleChainChanged);
+
+      return () => {
+        window.ethereum.removeListener("accountsChanged", handleAccountsChanged);
+        window.ethereum.removeListener("chainChanged", handleChainChanged);
+      };
     }
   }, []);
 
-  /* ----------------- TFX FUNCTIONS ----------------- */
+  /* ===================================================================
+     TFX TOKEN FUNCTIONS
+     =================================================================== */
 
   const getTFXBalance = async () => {
     if (!tfx || !account) return "0";
-    const bal = await tfx.balanceOf(account);
-    return ethers.formatEther(bal);
+    try {
+      const bal = await tfx.balanceOf(account);
+      return formatEther(bal);
+    } catch (error) {
+      console.error("Error getting TFX balance:", error);
+      return "0";
+    }
   };
 
   const approveTFX = async (amount) => {
-    const tx = await tfx.approve(TRUSTFORGE_ADDRESS, ethers.parseEther(amount));
-    await tx.wait();
+    if (!tfx) throw new Error("TFX contract not initialized");
+    try {
+      const tx = await tfx.approve(TRUSTFORGE_ADDRESS, parseEther(amount));
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error approving TFX:", error);
+      throw error;
+    }
   };
 
-  /* ----------------- LENDER FUNCTIONS ----------------- */
+  const getTFXAllowance = async () => {
+    if (!tfx || !account) return "0";
+    try {
+      const allowance = await tfx.allowance(account, TRUSTFORGE_ADDRESS);
+      return formatEther(allowance);
+    } catch (error) {
+      console.error("Error getting allowance:", error);
+      return "0";
+    }
+  };
+
+  /* ===================================================================
+     LENDER FUNCTIONS
+     =================================================================== */
 
   const depositToPool = async (amount) => {
-    await approveTFX(amount);
-    const tx = await trustForge.depositToPool(ethers.parseEther(amount));
-    await tx.wait();
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      await approveTFX(amount);
+      const tx = await trustForge.depositToPool(parseEther(amount));
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error depositing to pool:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const withdrawFromPool = async (amount) => {
-    const tx = await trustForge.withdrawFromPool(ethers.parseEther(amount));
-    await tx.wait();
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.withdrawFromPool(parseEther(amount));
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error withdrawing from pool:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   const claimInterest = async () => {
-    const tx = await trustForge.claimInterest();
-    await tx.wait();
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.claimInterest();
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error claiming interest:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  /* ----------------- BORROWER FUNCTIONS ----------------- */
+  /* ===================================================================
+     BORROWER FUNCTIONS
+     =================================================================== */
 
   const requestLoan = async (amount) => {
-    const tx = await trustForge.requestLoan(ethers.parseEther(amount));
-    await tx.wait();
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.requestLoan(parseEther(amount));
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error requesting loan:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const repayLoan = async (amount) => {
-    await approveTFX(amount);
-    const tx = await trustForge.repayLoan();
-    await tx.wait();
+  const repayLoan = async () => {
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const loan = await trustForge.getActiveLoan(account);
+      const totalRepayment = formatEther(loan.totalRepayment);
+      await approveTFX(totalRepayment);
+      const tx = await trustForge.repayLoan();
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error repaying loan:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  /* ----------------- READ FUNCTIONS ----------------- */
-
-  const getUserProfile = async () => {
-    return await trustForge.getUserProfile(account);
+  const markDefault = async (borrowerAddress) => {
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.markDefault(borrowerAddress);
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error marking default:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
-  const getActiveLoan = async () => {
-    return await trustForge.getActiveLoan(account);
+  /* ===================================================================
+     TRUST & SOCIAL FUNCTIONS
+     =================================================================== */
+
+  const vouchForUser = async (voucheeAddress) => {
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.vouchForUser(voucheeAddress);
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error vouching for user:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const hasVouched = async (voucherAddress, voucheeAddress) => {
+    if (!trustForge) return false;
+    try {
+      return await trustForge.vouches(voucherAddress, voucheeAddress);
+    } catch (error) {
+      console.error("Error checking vouch:", error);
+      return false;
+    }
+  };
+
+  /* ===================================================================
+     READ/VIEW FUNCTIONS
+     =================================================================== */
+
+  const getUserProfile = async (address) => {
+    if (!trustForge) return null;
+    try {
+      const userAddress = address || account;
+      const profile = await trustForge.getUserProfile(userAddress);
+      return {
+        trustScore: profile.trustScore.toString(),
+        totalLoansTaken: profile.totalLoansTaken.toString(),
+        successfulRepayments: profile.successfulRepayments.toString(),
+        defaults: profile.defaults.toString(),
+        hasActiveLoan: profile.hasActiveLoan,
+        walletAge: profile.walletAge.toString(),
+        maturityLevel: profile.maturityLevel.toString(),
+        maxBorrowingLimit: formatEther(profile.maxBorrowingLimit),
+      };
+    } catch (error) {
+      console.error("Error getting user profile:", error);
+      return null;
+    }
+  };
+
+  const getActiveLoan = async (address) => {
+    if (!trustForge) return null;
+    try {
+      const userAddress = address || account;
+      const loan = await trustForge.getActiveLoan(userAddress);
+      return {
+        principal: formatEther(loan.principal),
+        interestAmount: formatEther(loan.interestAmount),
+        totalRepayment: formatEther(loan.totalRepayment),
+        dueDate: loan.dueDate.toString(),
+        status: loan.status,
+        isOverdue: loan.isOverdue,
+      };
+    } catch (error) {
+      console.error("Error getting active loan:", error);
+      return null;
+    }
+  };
+
+  const getWalletMaturity = async (address) => {
+    if (!trustForge) return null;
+    try {
+      const userAddress = address || account;
+      const maturity = await trustForge.getWalletMaturity(userAddress);
+      return {
+        age: maturity.age.toString(),
+        maturityLevel: maturity.maturityLevel.toString(),
+        maturityMultiplier: maturity.maturityMultiplier.toString(),
+      };
+    } catch (error) {
+      console.error("Error getting wallet maturity:", error);
+      return null;
+    }
   };
 
   const getPoolStats = async () => {
-    return await trustForge.getPoolStats();
+    if (!trustForge) return null;
+    try {
+      const stats = await trustForge.getPoolStats();
+      return {
+        totalLiquidity: formatEther(stats.totalLiquidity),
+        totalActiveLoanAmount: formatEther(stats.totalActiveLoanAmount),
+        availableLiquidity: formatEther(stats.availableLiquidity),
+        utilizationRate: stats.utilizationRate.toString(),
+        interestPool: formatEther(stats.interestPool),
+        totalDefaulted: formatEther(stats.totalDefaulted),
+      };
+    } catch (error) {
+      console.error("Error getting pool stats:", error);
+      return null;
+    }
   };
 
-  const getLenderInfo = async () => {
-    return await trustForge.getLenderInfo(account);
+  const getLenderInfo = async (address) => {
+    if (!trustForge) return null;
+    try {
+      const lenderAddress = address || account;
+      const info = await trustForge.getLenderInfo(lenderAddress);
+      return {
+        depositedAmount: formatEther(info.depositedAmount),
+        totalInterestEarned: formatEther(info.totalInterestEarned),
+        pendingInterest: formatEther(info.pendingInterest),
+      };
+    } catch (error) {
+      console.error("Error getting lender info:", error);
+      return null;
+    }
+  };
+
+  const getDAOInfo = async () => {
+    if (!trustForge) return null;
+    try {
+      const info = await trustForge.getDAOInfo();
+      return {
+        enabled: info.enabled,
+        dao: info.dao,
+        trustIncrease: info.trustIncrease.toString(),
+        trustDecrease: info.trustDecrease.toString(),
+        baseRate: info.baseRate.toString(),
+        maxRate: info.maxRate.toString(),
+        loanDuration: info.loanDuration.toString(),
+      };
+    } catch (error) {
+      console.error("Error getting DAO info:", error);
+      return null;
+    }
+  };
+
+  const getConstants = async () => {
+    if (!trustForge) return null;
+    try {
+      const [
+        initialTrustScore,
+        maxTrustScore,
+        maturityLevel1,
+        maturityLevel2,
+        maturityLevel3,
+        minLoanAmount,
+      ] = await Promise.all([
+        trustForge.INITIAL_TRUST_SCORE(),
+        trustForge.MAX_TRUST_SCORE(),
+        trustForge.MATURITY_LEVEL_1(),
+        trustForge.MATURITY_LEVEL_2(),
+        trustForge.MATURITY_LEVEL_3(),
+        trustForge.MIN_LOAN_AMOUNT(),
+      ]);
+
+      return {
+        initialTrustScore: initialTrustScore.toString(),
+        maxTrustScore: maxTrustScore.toString(),
+        maturityLevel1: maturityLevel1.toString(),
+        maturityLevel2: maturityLevel2.toString(),
+        maturityLevel3: maturityLevel3.toString(),
+        minLoanAmount: formatEther(minLoanAmount),
+      };
+    } catch (error) {
+      console.error("Error getting constants:", error);
+      return null;
+    }
+  };
+
+  /* ===================================================================
+     ADMIN FUNCTIONS
+     =================================================================== */
+
+  const enableDAO = async (daoAddress) => {
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.enableDAO(daoAddress);
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error enabling DAO:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const pauseContract = async () => {
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.pause();
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error pausing contract:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  const unpauseContract = async () => {
+    if (!trustForge) throw new Error("TrustForge contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await trustForge.unpause();
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error unpausing contract:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
   };
 
   return (
     <BlockchainContext.Provider
       value={{
         account,
-        connectWallet,
+        provider,
+        signer,
         tfx,
         trustForge,
+        loading,
+        connectWallet,
+        disconnectWallet,
         getTFXBalance,
+        approveTFX,
+        getTFXAllowance,
         depositToPool,
         withdrawFromPool,
         claimInterest,
         requestLoan,
         repayLoan,
+        markDefault,
+        vouchForUser,
+        hasVouched,
         getUserProfile,
         getActiveLoan,
+        getWalletMaturity,
         getPoolStats,
         getLenderInfo,
+        getDAOInfo,
+        getConstants,
+        enableDAO,
+        pauseContract,
+        unpauseContract,
+        TFX_ADDRESS,
+        TRUSTFORGE_ADDRESS,
       }}
     >
       {children}
@@ -144,4 +524,10 @@ export const BlockchainProvider = ({ children }) => {
   );
 };
 
-export const useBlockchain = () => useContext(BlockchainContext);
+export const useBlockchain = () => {
+  const context = useContext(BlockchainContext);
+  if (!context) {
+    throw new Error("useBlockchain must be used within BlockchainProvider");
+  }
+  return context;
+};
