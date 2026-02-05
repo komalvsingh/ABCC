@@ -9,7 +9,7 @@ import "@openzeppelin/contracts/access/Ownable.sol";
 /**
  * @title TrustForge
  * @dev Trust-based, collateral-free micro-lending platform
- * Key Features: Wallet Maturity + Behavior Trust + DAO Governance
+ * Key Features: Wallet Maturity + Behavior Trust + DAO Governance + User-Selected Duration
  */
 contract TrustForge is ReentrancyGuard, Pausable, Ownable {
     
@@ -34,7 +34,8 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
     
     // Loan parameters - DAO adjustable
     uint256 public MIN_LOAN_AMOUNT = 0.01 ether;  // Minimum loan
-    uint256 public FIXED_LOAN_DURATION = 30 days; // Fixed duration - contract controls
+    uint256 public MIN_LOAN_DURATION = 1 days;    // Minimum duration (for hackathon flexibility)
+    uint256 public MAX_LOAN_DURATION = 180 days;  // Maximum duration
     uint256 public DEFAULT_COOLDOWN_PERIOD = 30 days;
     
     // Borrowing limits per trust level - DAO adjustable
@@ -71,6 +72,7 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         uint256 totalRepayment;
         uint256 startTime;
         uint256 dueDate;
+        uint256 duration;  // Store the selected duration
         LoanStatus status;
     }
     
@@ -106,8 +108,8 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
     
     // ============ Events ============
     
-    event LoanRequested(address indexed borrower, uint256 amount);
-    event LoanIssued(address indexed borrower, uint256 principal, uint256 interest, uint256 dueDate);
+    event LoanRequested(address indexed borrower, uint256 amount, uint256 duration);
+    event LoanIssued(address indexed borrower, uint256 principal, uint256 interest, uint256 dueDate, uint256 duration);
     event LoanRepaid(address indexed borrower, uint256 principal, uint256 interest);
     event LoanDefaulted(address indexed borrower, uint256 lostAmount);
     event TrustUpdated(address indexed user, uint256 oldScore, uint256 newScore, string reason);
@@ -214,12 +216,18 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
     }
     
     /**
-     * @dev Update loan duration (DAO governance)
+     * @dev Update loan duration limits (DAO governance)
      */
-    function updateLoanDuration(uint256 _newDuration) external onlyAdminOrDAO {
-        require(_newDuration >= 7 days && _newDuration <= 180 days, "Invalid duration");
-        emit ParameterUpdated("LOAN_DURATION", FIXED_LOAN_DURATION, _newDuration);
-        FIXED_LOAN_DURATION = _newDuration;
+    function updateLoanDurationLimits(uint256 _minDuration, uint256 _maxDuration) external onlyAdminOrDAO {
+        require(_minDuration >= 1 days, "Min duration too short");
+        require(_maxDuration <= 365 days, "Max duration too long");
+        require(_minDuration < _maxDuration, "Min must be less than max");
+        
+        emit ParameterUpdated("MIN_LOAN_DURATION", MIN_LOAN_DURATION, _minDuration);
+        emit ParameterUpdated("MAX_LOAN_DURATION", MAX_LOAN_DURATION, _maxDuration);
+        
+        MIN_LOAN_DURATION = _minDuration;
+        MAX_LOAN_DURATION = _maxDuration;
     }
     
     /**
@@ -347,9 +355,11 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
     // ============ Borrower Functions ============
     
     /**
-     * @dev Request a loan (contract sets duration and transfers from pool)
+     * @dev Request a loan with custom duration
+     * @param amount The loan amount to request
+     * @param duration The repayment duration in seconds (must be between MIN and MAX)
      */
-    function requestLoan(uint256 amount) external nonReentrant whenNotPaused trackWalletActivity {
+    function requestLoan(uint256 amount, uint256 duration) external nonReentrant whenNotPaused trackWalletActivity {
         UserProfile storage user = userProfiles[msg.sender];
         
         // Initialize new user
@@ -360,6 +370,8 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         // Validation
         require(!user.hasActiveLoan, "Already has active loan");
         require(amount >= MIN_LOAN_AMOUNT, "Amount below minimum");
+        require(duration >= MIN_LOAN_DURATION, "Duration too short");
+        require(duration <= MAX_LOAN_DURATION, "Duration too long");
         
         // Check default cooldown
         if (user.defaults > 0) {
@@ -380,23 +392,23 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         uint256 availableLiquidity = totalPoolLiquidity - totalActiveLoans;
         require(availableLiquidity >= amount, "Insufficient pool liquidity");
         
-        emit LoanRequested(msg.sender, amount);
+        emit LoanRequested(msg.sender, amount, duration);
         
-        // Issue loan (contract controls duration)
-        _issueLoan(msg.sender, amount, maturity.maturityLevel);
+        // Issue loan with user-selected duration
+        _issueLoan(msg.sender, amount, duration, maturity.maturityLevel);
     }
     
     /**
-     * @dev Internal: Issue loan to borrower
+     * @dev Internal: Issue loan to borrower with specified duration
      */
-    function _issueLoan(address borrower, uint256 amount, uint256 maturityLevel) internal {
+    function _issueLoan(address borrower, uint256 amount, uint256 duration, uint256 maturityLevel) internal {
         UserProfile storage user = userProfiles[borrower];
         
         // Calculate interest based on trust and maturity
         uint256 interestRate = _calculateInterestRate(user.trustScore, maturityLevel);
         
-        // Calculate interest amount for the FIXED duration
-        uint256 interestAmount = (amount * interestRate * FIXED_LOAN_DURATION) / (10000 * 365 days);
+        // Calculate interest amount for the user-selected duration
+        uint256 interestAmount = (amount * interestRate * duration) / (10000 * 365 days);
         uint256 totalRepayment = amount + interestAmount;
         
         // Create loan
@@ -406,7 +418,8 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         loan.interestAmount = interestAmount;
         loan.totalRepayment = totalRepayment;
         loan.startTime = block.timestamp;
-        loan.dueDate = block.timestamp + FIXED_LOAN_DURATION; // Contract sets duration
+        loan.dueDate = block.timestamp + duration; // User-selected duration
+        loan.duration = duration; // Store the duration
         loan.status = LoanStatus.ACTIVE;
         
         // Update state
@@ -417,7 +430,7 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         // Transfer tokens FROM POOL to borrower
         require(lendingToken.transfer(borrower, amount), "Transfer failed");
         
-        emit LoanIssued(borrower, amount, interestAmount, loan.dueDate);
+        emit LoanIssued(borrower, amount, interestAmount, loan.dueDate, duration);
     }
     
     /**
@@ -645,6 +658,7 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         uint256 interestAmount,
         uint256 totalRepayment,
         uint256 dueDate,
+        uint256 duration,
         LoanStatus status,
         bool isOverdue
     ) {
@@ -654,6 +668,7 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
             loan.interestAmount,
             loan.totalRepayment,
             loan.dueDate,
+            loan.duration,
             loan.status,
             block.timestamp > loan.dueDate && loan.status == LoanStatus.ACTIVE
         );
@@ -702,7 +717,8 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
         uint256 trustDecrease,
         uint256 baseRate,
         uint256 maxRate,
-        uint256 loanDuration
+        uint256 minDuration,
+        uint256 maxDuration
     ) {
         return (
             daoEnabled,
@@ -711,8 +727,13 @@ contract TrustForge is ReentrancyGuard, Pausable, Ownable {
             TRUST_DECREASE_ON_DEFAULT,
             BASE_INTEREST_RATE,
             MAX_INTEREST_RATE,
-            FIXED_LOAN_DURATION
+            MIN_LOAN_DURATION,
+            MAX_LOAN_DURATION
         );
+    }
+    
+    function getLoanDurationLimits() external view returns (uint256 minDuration, uint256 maxDuration) {
+        return (MIN_LOAN_DURATION, MAX_LOAN_DURATION);
     }
     
     // ============ Admin Functions ============

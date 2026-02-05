@@ -2,8 +2,8 @@
   "_format": "hh-sol-cache-2",
   "files": {
     "C:\\Users\\ACER\\ABCC\\Blockchain\\contracts\\tfxtoken.sol": {
-      "lastModificationDate": 1770222985902,
-      "contentHash": "49862a8ae27e956d65142b187cb2b4a4",
+      "lastModificationDate": 1770299103925,
+      "contentHash": "77e7508e15c287427f0375541f6e8fc0",
       "sourceName": "contracts/tfxtoken.sol",
       "solcConfig": {
         "version": "0.8.28",
@@ -275,8 +275,8 @@
       ]
     },
     "C:\\Users\\ACER\\ABCC\\Blockchain\\contracts\\trustforge.sol": {
-      "lastModificationDate": 1770223050572,
-      "contentHash": "12deca710caba7d164ae701dcb7bc328",
+      "lastModificationDate": 1770298818503,
+      "contentHash": "d358e406dbe1558d1ab757b740755ea4",
       "sourceName": "contracts/trustforge.sol",
       "solcConfig": {
         "version": "0.8.28",

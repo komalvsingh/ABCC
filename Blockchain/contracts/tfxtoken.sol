@@ -1,155 +1,61 @@
-import { createContext, useContext, useEffect, useState } from "react";
-import { ethers } from "ethers";
+// SPDX-License-Identifier: MIT
+pragma solidity ^0.8.20;
 
-// Import ABIs
-import TFXTokenABI from "../abis/TFXToken.json";
-import TrustForgeABI from "../abis/TrustForge.json";
+import "@openzeppelin/contracts/token/ERC20/ERC20.sol";
+import "@openzeppelin/contracts/access/Ownable.sol";
 
-// Addresses (from your deployments)
-const TFX_ADDRESS = "0xYourTFXAddressHere";
-const TRUSTFORGE_ADDRESS = "0xYourTrustForgeAddressHere";
+/**
+ * @title TFXToken
+ * @dev ERC20 token for TrustForge lending platform
+ * Includes a controlled faucet for test usage
+ */
+contract TFXToken is ERC20, Ownable {
 
-const BlockchainContext = createContext();
+    // =========================
+    // Faucet Configuration
+    // =========================
+    uint256 public constant FAUCET_AMOUNT = 100 * 10**18; // 100 TFX
+    uint256 public constant FAUCET_COOLDOWN = 1 days;
 
-export const BlockchainProvider = ({ children }) => {
-  const [account, setAccount] = useState(null);
-  const [provider, setProvider] = useState(null);
-  const [signer, setSigner] = useState(null);
-  const [tfx, setTfx] = useState(null);
-  const [trustForge, setTrustForge] = useState(null);
+    mapping(address => uint256) public lastClaimTime;
 
-  // Connect wallet
-  const connectWallet = async () => {
-    if (!window.ethereum) {
-      alert("Install MetaMask");
-      return;
+    constructor() ERC20("TrustForge Token", "TFX") Ownable(msg.sender) {
+        // Initial supply minted to owner
+        _mint(msg.sender, 1_000_000 * 10**decimals()); // 1 million TFX
     }
 
-    const accounts = await window.ethereum.request({
-      method: "eth_requestAccounts",
-    });
+    /**
+     * @dev Faucet function
+     * Users can claim limited TFX for lending/borrowing
+     */
+    function claimTFX() external {
+        require(
+            block.timestamp - lastClaimTime[msg.sender] >= FAUCET_COOLDOWN,
+            "Faucet cooldown active"
+        );
 
-    const provider = new ethers.BrowserProvider(window.ethereum);
-    const signer = await provider.getSigner();
+        require(
+            balanceOf(owner()) >= FAUCET_AMOUNT,
+            "Owner has insufficient TFX"
+        );
 
-    const tfxContract = new ethers.Contract(
-      TFX_ADDRESS,
-      TFXTokenABI.abi,
-      signer
-    );
+        lastClaimTime[msg.sender] = block.timestamp;
 
-    const trustForgeContract = new ethers.Contract(
-      TRUSTFORGE_ADDRESS,
-      TrustForgeABI.abi,
-      signer
-    );
-
-    setAccount(accounts[0]);
-    setProvider(provider);
-    setSigner(signer);
-    setTfx(tfxContract);
-    setTrustForge(trustForgeContract);
-  };
-
-  // Auto connect
-  useEffect(() => {
-    if (window.ethereum) {
-      connectWallet();
+        // Transfer from owner to user
+        _transfer(owner(), msg.sender, FAUCET_AMOUNT);
     }
-  }, []);
 
-  /* ----------------- TFX FUNCTIONS ----------------- */
+    /**
+     * @dev Owner can mint extra tokens if needed (testing only)
+     */
+    function mint(address to, uint256 amount) external onlyOwner {
+        _mint(to, amount);
+    }
 
-  const getTFXBalance = async () => {
-    const bal = await tfx.balanceOf(account);
-    return ethers.formatEther(bal);
-  };
-
-  const approveTFX = async (amount) => {
-    const tx = await tfx.approve(
-      TRUSTFORGE_ADDRESS,
-      ethers.parseEther(amount)
-    );
-    await tx.wait();
-  };
-
-  /* ----------------- LENDER FUNCTIONS ----------------- */
-
-  const depositToPool = async (amount) => {
-    await approveTFX(amount);
-    const tx = await trustForge.depositToPool(
-      ethers.parseEther(amount)
-    );
-    await tx.wait();
-  };
-
-  const withdrawFromPool = async (amount) => {
-    const tx = await trustForge.withdrawFromPool(
-      ethers.parseEther(amount)
-    );
-    await tx.wait();
-  };
-
-  const claimInterest = async () => {
-    const tx = await trustForge.claimInterest();
-    await tx.wait();
-  };
-
-  /* ----------------- BORROWER FUNCTIONS ----------------- */
-
-  const requestLoan = async (amount) => {
-    const tx = await trustForge.requestLoan(
-      ethers.parseEther(amount)
-    );
-    await tx.wait();
-  };
-
-  const repayLoan = async (amount) => {
-    await approveTFX(amount);
-    const tx = await trustForge.repayLoan();
-    await tx.wait();
-  };
-
-  /* ----------------- READ FUNCTIONS ----------------- */
-
-  const getUserProfile = async () => {
-    return await trustForge.getUserProfile(account);
-  };
-
-  const getActiveLoan = async () => {
-    return await trustForge.getActiveLoan(account);
-  };
-
-  const getPoolStats = async () => {
-    return await trustForge.getPoolStats();
-  };
-
-  const getLenderInfo = async () => {
-    return await trustForge.getLenderInfo(account);
-  };
-
-  return (
-    <BlockchainContext.Provider
-      value={{
-        account,
-        connectWallet,
-        tfx,
-        trustForge,
-        getTFXBalance,
-        depositToPool,
-        withdrawFromPool,
-        claimInterest,
-        requestLoan,
-        repayLoan,
-        getUserProfile,
-        getActiveLoan,
-        getPoolStats,
-        getLenderInfo,
-      }}
-    >
-      {children}
-    </BlockchainContext.Provider>
-  );
-};
-
-export const useBlockchain = () => useContext(BlockchainContext);
+    /**
+     * @dev Burn tokens
+     */
+    function burn(uint256 amount) external {
+        _burn(msg.sender, amount);
+    }
+}
