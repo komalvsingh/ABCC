@@ -11,14 +11,20 @@ const Lend = () => {
     withdrawFromPool,
     claimInterest,
     getLenderInfo,
+    // Faucet functions
+    claimTFX,
+    canClaimFaucet,
+    getFaucetInfo,
   } = useBlockchain();
 
   const [amount, setAmount] = useState("");
   const [balance, setBalance] = useState("0");
   const [lenderInfo, setLenderInfo] = useState(null);
   const [message, setMessage] = useState("");
+  const [canClaim, setCanClaim] = useState(false);
+  const [faucetInfo, setFaucetInfo] = useState(null);
 
-  // Load balance & lender info
+  // Load balance, lender info & faucet status
   const loadData = async () => {
     try {
       const bal = await getTFXBalance();
@@ -26,6 +32,12 @@ const Lend = () => {
 
       const info = await getLenderInfo();
       setLenderInfo(info);
+
+      const eligible = await canClaimFaucet();
+      setCanClaim(eligible);
+
+      const faucet = await getFaucetInfo();
+      setFaucetInfo(faucet);
     } catch (err) {
       console.error(err);
     }
@@ -50,7 +62,7 @@ const Lend = () => {
       setMessage("Deposit successful ✅");
       setAmount("");
       loadData();
-    } catch (err) {
+    } catch {
       setMessage("Deposit failed ❌");
     }
   };
@@ -68,7 +80,7 @@ const Lend = () => {
       setMessage("Withdrawal successful ✅");
       setAmount("");
       loadData();
-    } catch (err) {
+    } catch {
       setMessage("Withdrawal failed ❌");
     }
   };
@@ -80,8 +92,20 @@ const Lend = () => {
       await claimInterest();
       setMessage("Interest claimed ✅");
       loadData();
-    } catch (err) {
+    } catch {
       setMessage("Claim failed ❌");
+    }
+  };
+
+  // Claim TFX from Faucet
+  const handleClaimTFX = async () => {
+    try {
+      setMessage("Claiming TFX from faucet...");
+      await claimTFX();
+      setMessage("TFX claimed successfully ✅");
+      loadData();
+    } catch {
+      setMessage("Faucet claim failed ❌ (cooldown active?)");
     }
   };
 
@@ -96,8 +120,26 @@ const Lend = () => {
           <p><strong>Wallet:</strong> {account}</p>
           <p><strong>TFX Balance:</strong> {balance}</p>
 
+          {/* Faucet Section */}
+          <hr />
+          <h3>🚰 Claim Test TFX</h3>
+
+          {faucetInfo && (
+            <p>
+              Faucet gives <strong>{faucetInfo.faucetAmount} TFX</strong> per claim
+            </p>
+          )}
+
+          <button
+            onClick={handleClaimTFX}
+            disabled={!canClaim || loading}
+          >
+            {canClaim ? "Claim TFX" : "Cooldown Active ⏳"}
+          </button>
+
           <hr />
 
+          {/* Lend / Withdraw */}
           <h3>Lend / Withdraw</h3>
           <input
             type="number"
@@ -110,13 +152,18 @@ const Lend = () => {
             <button onClick={handleDeposit} disabled={loading}>
               Deposit
             </button>
-            <button onClick={handleWithdraw} disabled={loading} style={{ marginLeft: "10px" }}>
+            <button
+              onClick={handleWithdraw}
+              disabled={loading}
+              style={{ marginLeft: "10px" }}
+            >
               Withdraw
             </button>
           </div>
 
           <hr />
 
+          {/* Lender Stats */}
           <h3>Your Lender Stats</h3>
           {lenderInfo ? (
             <ul>

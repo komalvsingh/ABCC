@@ -123,10 +123,11 @@ export const BlockchainProvider = ({ children }) => {
      TFX TOKEN FUNCTIONS
      =================================================================== */
 
-  const getTFXBalance = async () => {
-    if (!tfx || !account) return "0";
+  const getTFXBalance = async (address) => {
+    if (!tfx) return "0";
     try {
-      const bal = await tfx.balanceOf(account);
+      const userAddress = address || account;
+      const bal = await tfx.balanceOf(userAddress);
       return formatEther(bal);
     } catch (error) {
       console.error("Error getting TFX balance:", error);
@@ -154,6 +155,188 @@ export const BlockchainProvider = ({ children }) => {
     } catch (error) {
       console.error("Error getting allowance:", error);
       return "0";
+    }
+  };
+
+  /* ===================================================================
+     TFX TOKEN - FAUCET FUNCTIONS
+     =================================================================== */
+
+  /**
+   * Claim TFX from faucet (100 TFX per claim, 1 day cooldown)
+   */
+  const claimTFX = async () => {
+    if (!tfx) throw new Error("TFX contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await tfx.claimTFX();
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error claiming TFX from faucet:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Get last claim time for an address
+   */
+  const getLastClaimTime = async (address) => {
+    if (!tfx) return "0";
+    try {
+      const userAddress = address || account;
+      const lastClaim = await tfx.lastClaimTime(userAddress);
+      return lastClaim.toString();
+    } catch (error) {
+      console.error("Error getting last claim time:", error);
+      return "0";
+    }
+  };
+
+  /**
+   * Get faucet constants
+   */
+  const getFaucetInfo = async () => {
+    if (!tfx) return null;
+    try {
+      const [faucetAmount, faucetCooldown] = await Promise.all([
+        tfx.FAUCET_AMOUNT(),
+        tfx.FAUCET_COOLDOWN(),
+      ]);
+
+      return {
+        faucetAmount: formatEther(faucetAmount),
+        faucetCooldown: faucetCooldown.toString(),
+      };
+    } catch (error) {
+      console.error("Error getting faucet info:", error);
+      return null;
+    }
+  };
+
+  /**
+   * Check if user can claim from faucet
+   */
+  const canClaimFaucet = async (address) => {
+    if (!tfx) return false;
+    try {
+      const userAddress = address || account;
+      const lastClaim = await tfx.lastClaimTime(userAddress);
+      const cooldown = await tfx.FAUCET_COOLDOWN();
+      const currentTime = Math.floor(Date.now() / 1000);
+      
+      return currentTime - Number(lastClaim) >= Number(cooldown);
+    } catch (error) {
+      console.error("Error checking faucet eligibility:", error);
+      return false;
+    }
+  };
+
+  /* ===================================================================
+     TFX TOKEN - ADMIN FUNCTIONS
+     =================================================================== */
+
+  /**
+   * Mint new TFX tokens (owner only)
+   */
+  const mintTFX = async (toAddress, amount) => {
+    if (!tfx) throw new Error("TFX contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await tfx.mint(toAddress, parseEther(amount));
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error minting TFX:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Burn TFX tokens
+   */
+  const burnTFX = async (amount) => {
+    if (!tfx) throw new Error("TFX contract not initialized");
+    try {
+      setLoading(true);
+      const tx = await tfx.burn(parseEther(amount));
+      await tx.wait();
+      return tx;
+    } catch (error) {
+      console.error("Error burning TFX:", error);
+      throw error;
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  /**
+   * Get token name
+   */
+  const getTFXName = async () => {
+    if (!tfx) return "";
+    try {
+      return await tfx.name();
+    } catch (error) {
+      console.error("Error getting token name:", error);
+      return "";
+    }
+  };
+
+  /**
+   * Get token symbol
+   */
+  const getTFXSymbol = async () => {
+    if (!tfx) return "";
+    try {
+      return await tfx.symbol();
+    } catch (error) {
+      console.error("Error getting token symbol:", error);
+      return "";
+    }
+  };
+
+  /**
+   * Get token decimals
+   */
+  const getTFXDecimals = async () => {
+    if (!tfx) return 18;
+    try {
+      return await tfx.decimals();
+    } catch (error) {
+      console.error("Error getting token decimals:", error);
+      return 18;
+    }
+  };
+
+  /**
+   * Get total supply
+   */
+  const getTFXTotalSupply = async () => {
+    if (!tfx) return "0";
+    try {
+      const supply = await tfx.totalSupply();
+      return formatEther(supply);
+    } catch (error) {
+      console.error("Error getting total supply:", error);
+      return "0";
+    }
+  };
+
+  /**
+   * Get token owner
+   */
+  const getTFXOwner = async () => {
+    if (!tfx) return "";
+    try {
+      return await tfx.owner();
+    } catch (error) {
+      console.error("Error getting token owner:", error);
+      return "";
     }
   };
 
@@ -211,11 +394,11 @@ export const BlockchainProvider = ({ children }) => {
      BORROWER FUNCTIONS
      =================================================================== */
 
-  const requestLoan = async (amount) => {
+  const requestLoan = async (amount, duration) => {
     if (!trustForge) throw new Error("TrustForge contract not initialized");
     try {
       setLoading(true);
-      const tx = await trustForge.requestLoan(parseEther(amount));
+      const tx = await trustForge.requestLoan(parseEther(amount), duration);
       await tx.wait();
       return tx;
     } catch (error) {
@@ -323,6 +506,7 @@ export const BlockchainProvider = ({ children }) => {
         interestAmount: formatEther(loan.interestAmount),
         totalRepayment: formatEther(loan.totalRepayment),
         dueDate: loan.dueDate.toString(),
+        duration: loan.duration.toString(),
         status: loan.status,
         isOverdue: loan.isOverdue,
       };
@@ -393,7 +577,8 @@ export const BlockchainProvider = ({ children }) => {
         trustDecrease: info.trustDecrease.toString(),
         baseRate: info.baseRate.toString(),
         maxRate: info.maxRate.toString(),
-        loanDuration: info.loanDuration.toString(),
+        minDuration: info.minDuration.toString(),
+        maxDuration: info.maxDuration.toString(),
       };
     } catch (error) {
       console.error("Error getting DAO info:", error);
@@ -430,6 +615,20 @@ export const BlockchainProvider = ({ children }) => {
       };
     } catch (error) {
       console.error("Error getting constants:", error);
+      return null;
+    }
+  };
+
+  const getLoanDurationLimits = async () => {
+    if (!trustForge) return null;
+    try {
+      const limits = await trustForge.getLoanDurationLimits();
+      return {
+        minDuration: limits.minDuration.toString(),
+        maxDuration: limits.maxDuration.toString(),
+      };
+    } catch (error) {
+      console.error("Error getting loan duration limits:", error);
       return null;
     }
   };
@@ -494,17 +693,35 @@ export const BlockchainProvider = ({ children }) => {
         loading,
         connectWallet,
         disconnectWallet,
+        // TFX Token - Basic Functions
         getTFXBalance,
         approveTFX,
         getTFXAllowance,
+        getTFXName,
+        getTFXSymbol,
+        getTFXDecimals,
+        getTFXTotalSupply,
+        getTFXOwner,
+        // TFX Token - Faucet Functions
+        claimTFX,
+        getLastClaimTime,
+        getFaucetInfo,
+        canClaimFaucet,
+        // TFX Token - Admin Functions
+        mintTFX,
+        burnTFX,
+        // Lender Functions
         depositToPool,
         withdrawFromPool,
         claimInterest,
+        // Borrower Functions
         requestLoan,
         repayLoan,
         markDefault,
+        // Trust & Social Functions
         vouchForUser,
         hasVouched,
+        // Read/View Functions
         getUserProfile,
         getActiveLoan,
         getWalletMaturity,
@@ -512,9 +729,12 @@ export const BlockchainProvider = ({ children }) => {
         getLenderInfo,
         getDAOInfo,
         getConstants,
+        getLoanDurationLimits,
+        // Admin Functions
         enableDAO,
         pauseContract,
         unpauseContract,
+        // Constants
         TFX_ADDRESS,
         TRUSTFORGE_ADDRESS,
       }}
