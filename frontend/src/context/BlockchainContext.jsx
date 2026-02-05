@@ -6,8 +6,8 @@ import TFXTokenABI from "../abis/TFXToken.json";
 import TrustForgeABI from "../abis/TrustForge.json";
 
 // Addresses (from your deployments)
-const TFX_ADDRESS = "0xe8aC27B0B0A257aC40Ec9e99B899CD9d5A2D528B";
-const TRUSTFORGE_ADDRESS = "0x236C9dae6369596f9301aFA1Fbb7C3E8613F903e";
+const TFX_ADDRESS = "0x3BfC9C9A6BA115223283ffA1a1CdE90a9D6e187b";
+const TRUSTFORGE_ADDRESS = "0x463942083D67Fe0fF490D6Bd1F4c6e671c0C309a";
 
 const BlockchainContext = createContext();
 
